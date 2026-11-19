@@ -1,0 +1,143 @@
+Pleas make  C++ code to convert double into char array. Code is for MCU, memory is limited, so do not include ibraries. Do not use std::to_chars(). this method is not available.
+
+Here's a small, dependency-free C++ function that converts a double to a null-terminated char array suitable for MCUs (no dynamic allocation, no heavy standard library usage, no std::to_chars). It supports a fixed number of decimal places (precision), does correct rounding, handles negative values, and uses only a few small automatic buffers. Limitations are noted after the code.
+dtoa.cpp
+
+// Minimal double -> char[] conversion for constrained MCUs.
+// - No std::string, no std::to_chars, no dynamic allocation.
+// - Rounds to `precision` fractional digits.
+// - Writes a null-terminated string to `buf` (size buf_size).
+// - Returns true on success, false if buffer too small or precision too large.
+// - Limits: integer part must fit into unsigned long long when cast
+
+Notes and trade-offs
+
+    The routine avoids heavyweight headers and dynamic memory. It uses small fixed-size local buffers (intbuf and fbuf), making stack usage bounded; MAX_PREC is 18 to keep fbuf small.
+    Rounding propagates into the integer part if needed.
+    Very large magnitudes (outside the range that can be fit into unsigned long long when casting) may fail — this is typical for tiny MCU implementations; if you need to support very large exponents, a scientific notation routine would be needed.
+    If you want trailing fractional zeros removed (e.g., "1.2300" -> "1.23"), I can add an option to trim them.
+    If you need exponential format (e.g., 1.23e+20), I can implement that as well.
+
+If you want, I can:
+
+    Trim trailing zeros,
+    Provide scientific notation fallback for very large/small values,
+    Lower the stack footprint further by reducing buffers (but that reduces max supported precision). Which would you prefer?
+
+
+
+CODE
+------
+108
+109
+110
+111
+112
+113
+114
+115
+116
+117
+118
+119
+120
+121
+122
+123
+124
+125
+126
+127
+128
+129
+130
+131
+132
+133
+134
+135
+136
+137
+138
+139
+140
+141
+142
+143
+144
+145
+146
+147
+148
+149
+150
+151
+152
+153
+154
+155
+156
+157
+158
+159
+160
+161
+162
+163
+#include <stddef.h> // for size_t
+            } else {
+                fbuf[i] = (char)('0' + d);
+                carry = 0;
+            }
+        }
+        // if carry remains, add to integer part (intbuf is reversed)
+        for (int i = 0; carry && i < int_len; ++i) {
+            int d = (intbuf[i] - '0') + carry;
+            if (d >= 10) {
+                intbuf[i] = '0';
+                carry = 1;
+            } else {
+                intbuf[i] = (char)('0' + d);
+                carry = 0;
+            }
+        }
+        if (carry) {
+            // append '1' as new most significant digit (reversed storage)
+            if (int_len >= (int)sizeof(intbuf)) return false;
+            intbuf[int_len++] = '1';
+        }
+    }
+
+    // compute required length: sign already written; need int_len + (precision?1+precision:0) + '\0'
+    size_t need = (size_t)int_len + (fprec > 0 ? (1 + (size_t)fprec) : 0) + 1;
+    if (need > rem) return false;
+
+    // write integer part (reverse intbuf)
+    for (int i = int_len - 1; i >= 0; --i) {
+        *p++ = intbuf[i];
+    }
+
+    // write fractional part
+    if (fprec > 0) {
+        *p++ = '.';
+        for (int i = 0; i < fprec; ++i) {
+            *p++ = fbuf[i];
+        }
+    }
+
+    *p = '\0';
+    return true;
+}
+
+// Example usage (not for MCU, just illustration):
+/*
+#include <stdio.h>
+int main() {
+    char buf[64];
+    dtoa(-1234.56789, buf, sizeof(buf), 4);
+    puts(buf); // "-1234.5679"
+    dtoa(0.000123456, buf, sizeof(buf), 8);
+    puts(buf); // "0.00012346"
+    return 0;
+}
+*/
